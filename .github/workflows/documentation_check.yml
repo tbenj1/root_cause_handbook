@@ -32,6 +32,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Prepare macOS launcher permissions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: chmod 755 ./bootstrap-macos.sh ./docs.command
+
       - name: Run static project audit
         shell: pwsh
         run: python ./tools/project_audit.py
@@ -167,6 +172,16 @@ jobs:
               foreach ($requiredFile in @($installedRunScript, $installedConfig)) {
                   if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
                       throw "The installed file was not found: $requiredFile"
+                  }
+              }
+
+              if ($IsMacOS) {
+                  foreach ($launcherName in @('bootstrap-macos.sh', 'docs.command')) {
+                      $installedLauncher = Join-Path $installPath $launcherName
+                      & /bin/test -x $installedLauncher
+                      if ($LASTEXITCODE -ne 0) {
+                          throw "The installed macOS launcher is not executable: $installedLauncher"
+                      }
                   }
               }
 
