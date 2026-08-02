@@ -51,7 +51,7 @@ Examples:
   .\bootstrap-windows.ps1 -LocalRun -ForceRepair
   .\bootstrap-windows.ps1 -LocalRun -StopServer
 '@ | Write-Host
-    exit 0
+    return
 }
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -70,6 +70,8 @@ if ([string]::IsNullOrWhiteSpace($localAppData)) {
 }
 
 $PortablePowerShellBase = Join-Path $localAppData 'Programs\PowerShell'
+$BootstrapLogPath = Join-Path ([IO.Path]::GetTempPath()) 'RootCauseHandbook-bootstrap.log'
+Set-Content -LiteralPath $BootstrapLogPath -Value "Root Cause Handbook bootstrap started at $([DateTime]::Now.ToString('s'))." -Encoding UTF8
 
 function Write-BootstrapMessage {
     param(
@@ -81,11 +83,24 @@ function Write-BootstrapMessage {
         [string]$Message
     )
 
+    $line = switch ($Level) {
+        'Step'    { "[>] $Message" }
+        'Success' { "[+] $Message" }
+        'Skip'    { "[-] $Message" }
+        'Warning' { "[WARNING] $Message" }
+    }
+
     switch ($Level) {
-        'Step'    { Write-Host "[>] $Message" }
-        'Success' { Write-Host "[+] $Message" -ForegroundColor Green }
-        'Skip'    { Write-Host "[-] $Message" -ForegroundColor DarkGray }
-        'Warning' { Write-Host "[WARNING] $Message" -ForegroundColor Yellow }
+        'Success' { Write-Host $line -ForegroundColor Green }
+        'Skip'    { Write-Host $line -ForegroundColor DarkGray }
+        'Warning' { Write-Host $line -ForegroundColor Yellow }
+        default   { Write-Host $line }
+    }
+
+    try {
+        Add-Content -LiteralPath $BootstrapLogPath -Value $line -Encoding UTF8
+    }
+    catch {
     }
 }
 
@@ -576,6 +591,7 @@ try {
     Write-Host ''
     Write-Host 'Root Cause Handbook Bootstrap' -ForegroundColor Cyan
     Write-Host ''
+    Write-BootstrapMessage -Level Step -Message "Setup output is being saved to $BootstrapLogPath"
 
     $powerShellPath = Install-OrUpdatePowerShell
 
@@ -611,15 +627,20 @@ try {
     ) + $nextArguments
 
     Write-BootstrapMessage -Level Step -Message 'Continuing with the Root Cause Handbook setup.'
-    & $powerShellPath @powerShellArguments
-    exit $LASTEXITCODE
+    & $powerShellPath @powerShellArguments 2>&1 | Tee-Object -FilePath $BootstrapLogPath -Append
+    $setupExitCode = $LASTEXITCODE
+
+    if ($setupExitCode -ne 0) {
+        throw "The setup process returned exit code $setupExitCode."
+    }
 }
 catch {
     Write-Host ''
     Write-Host '[!] Root Cause Handbook bootstrap failed.' -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host "Setup log: $BootstrapLogPath" -ForegroundColor Yellow
     Write-Host ''
-    exit 1
+    throw
 }
 finally {
     if ($tempInstallScript) {

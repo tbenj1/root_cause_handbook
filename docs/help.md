@@ -25,13 +25,23 @@ Git and a separate Python installation are not required.
 Open **Windows PowerShell** and run:
 
 ```powershell
-$u='https://raw.githubusercontent.com/tbenj1/root_cause_handbook/main/bootstrap-windows.ps1'; for($i=1;$i -le 3;$i++){try{$s=Invoke-RestMethod -Uri $u -UseBasicParsing -TimeoutSec 60;break}catch{if($i -eq 3){throw};Start-Sleep -Seconds (2*$i)}}; if($s -notmatch 'Root Cause Handbook Bootstrap'){throw 'The bootstrap download was not valid.'}; Invoke-Expression $s
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$u='https://raw.githubusercontent.com/tbenj1/root_cause_handbook/main/bootstrap-windows.ps1';$f=Join-Path $env:TEMP ('RootCauseHandbook-bootstrap-'+[guid]::NewGuid().ToString('N')+'.ps1');try{Write-Host '[>] Downloading the Root Cause Handbook bootstrap.';for($i=1;$i -le 3;$i++){try{Invoke-WebRequest -Uri $u -OutFile $f -UseBasicParsing -TimeoutSec 60;break}catch{if($i -eq 3){throw};Start-Sleep -Seconds (2*$i)}};$t=Get-Content -LiteralPath $f -Raw;if($t -notmatch 'Root Cause Handbook Bootstrap'){throw 'The bootstrap download was not valid.'};Write-Host '[>] Starting the Root Cause Handbook setup.';& $f}finally{Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue}
 ```
+
+The command downloads the bootstrap to a temporary file instead of running the downloaded text through `Invoke-Expression`. This keeps setup errors visible in the PowerShell window.
+
+The first run can take several minutes. The browser does not open until PowerShell, Python, the website packages, and the handbook itself have all passed their checks.
 
 The default install path is:
 
 ```text
 %LOCALAPPDATA%\RootCauseHandbook
+```
+
+Windows setup output is saved to:
+
+```text
+%TEMP%\RootCauseHandbook-bootstrap.log
 ```
 
 ## Install or Update on macOS
@@ -186,13 +196,27 @@ The launcher will not stop or overwrite a different website that is already usin
 
 ### The browser did not open
 
-Open the local address manually:
+First, open the local address manually:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-You can also rerun the launcher without `-NoBrowser` or `--no-browser`.
+If the page opens, the server is working and only the automatic browser launch failed.
+
+On Windows, check the setup log:
+
+```text
+%TEMP%\RootCauseHandbook-bootstrap.log
+```
+
+You can also start the installed copy directly:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\RootCauseHandbook\run.ps1"
+```
+
+If port `8000` is already being used, run the launcher with another port such as `-Port 8080`.
 
 ### Validation failed
 

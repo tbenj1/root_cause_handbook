@@ -516,23 +516,32 @@ function Open-HandbookHomepage {
         [string]$Homepage
     )
 
+    Write-LauncherMessage -Level Success -Message "The handbook is available at $Homepage"
+
     if ($NoBrowser) {
-        Write-LauncherMessage -Level Success -Message "The handbook is available at $Homepage"
         return
     }
 
-    if ($IsWindows) {
-        Start-Process $Homepage | Out-Null
-    }
-    elseif ($IsMacOS) {
-        Invoke-NativeCommand `
-            -FilePath '/usr/bin/open' `
-            -Arguments @($Homepage) `
-            -FailureMessage 'The browser could not be opened.' `
-            -Quiet | Out-Null
-    }
+    try {
+        if ($IsWindows) {
+            $startInfo = [Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $Homepage
+            $startInfo.UseShellExecute = $true
+            [Diagnostics.Process]::Start($startInfo) | Out-Null
+        }
+        elseif ($IsMacOS) {
+            Invoke-NativeCommand `
+                -FilePath '/usr/bin/open' `
+                -Arguments @($Homepage) `
+                -FailureMessage 'The browser could not be opened.' `
+                -Quiet | Out-Null
+        }
 
-    Write-LauncherMessage -Level Success -Message "Opened $Homepage"
+        Write-LauncherMessage -Level Success -Message "Opened $Homepage"
+    }
+    catch {
+        Write-LauncherMessage -Level Warning -Message "The browser did not open automatically. Open $Homepage manually. $($_.Exception.Message)"
+    }
 }
 
 function Test-VirtualEnvironment {

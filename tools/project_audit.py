@@ -308,6 +308,25 @@ def check_help_and_audience() -> None:
                 fail(f"Audience-limiting wording {label!r} remains in {path.relative_to(ROOT)}")
 
 
+
+def check_windows_bootstrap_contract() -> None:
+    bootstrap = ROOT / "bootstrap-windows.ps1"
+    readme = ROOT / "README.md"
+    help_page = DOCS / "help.md"
+    if bootstrap.is_file():
+        text = bootstrap.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?mi)^\s*exit(?:\s|$)", text):
+            fail("bootstrap-windows.ps1 must not exit the calling PowerShell session")
+        for marker in ("RootCauseHandbook-bootstrap.log", "Tee-Object"):
+            if marker not in text:
+                fail(f"Windows bootstrap marker {marker!r} is missing")
+    for path in (readme, help_page):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?mi)(?:^|;)\s*Invoke-Expression\b", text):
+            fail(f"Unsafe Windows bootstrap invocation remains in {path.relative_to(ROOT)}")
+
 def check_supported_platform_scope() -> None:
     unsupported = "lin" + "ux"
     patterns = {
@@ -410,6 +429,7 @@ def main() -> int:
         check_xml_assets,
         check_no_obvious_placeholders,
         check_help_and_audience,
+        check_windows_bootstrap_contract,
         check_supported_platform_scope,
         check_no_source_comments,
         check_obvious_unused_functions,

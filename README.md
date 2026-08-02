@@ -11,8 +11,10 @@ The handbook runs as a local MkDocs website. The setup checks PowerShell first, 
 Open **Windows PowerShell** and run:
 
 ```powershell
-$u='https://raw.githubusercontent.com/tbenj1/root_cause_handbook/main/bootstrap-windows.ps1'; for($i=1;$i -le 3;$i++){try{$s=Invoke-RestMethod -Uri $u -UseBasicParsing -TimeoutSec 60;break}catch{if($i -eq 3){throw};Start-Sleep -Seconds (2*$i)}}; if($s -notmatch 'Root Cause Handbook Bootstrap'){throw 'The bootstrap download was not valid.'}; Invoke-Expression $s
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$u='https://raw.githubusercontent.com/tbenj1/root_cause_handbook/main/bootstrap-windows.ps1';$f=Join-Path $env:TEMP ('RootCauseHandbook-bootstrap-'+[guid]::NewGuid().ToString('N')+'.ps1');try{Write-Host '[>] Downloading the Root Cause Handbook bootstrap.';for($i=1;$i -le 3;$i++){try{Invoke-WebRequest -Uri $u -OutFile $f -UseBasicParsing -TimeoutSec 60;break}catch{if($i -eq 3){throw};Start-Sleep -Seconds (2*$i)}};$t=Get-Content -LiteralPath $f -Raw;if($t -notmatch 'Root Cause Handbook Bootstrap'){throw 'The bootstrap download was not valid.'};Write-Host '[>] Starting the Root Cause Handbook setup.';& $f}finally{Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue}
 ```
+
+The command downloads the bootstrap to a temporary file and runs it directly. It does not use `Invoke-Expression`, so setup errors stay visible in the PowerShell window.
 
 The Windows bootstrap:
 
@@ -24,6 +26,12 @@ The Windows bootstrap:
 6. Continues directly into the handbook setup.
 
 The fallback install normally does not require administrator access.
+
+The first run can take several minutes because PowerShell, Python, and the locked website packages may need to be downloaded. The browser opens only after the website passes validation and the local server answers its health check. Setup output is also saved to:
+
+```text
+%TEMP%\RootCauseHandbook-bootstrap.log
+```
 
 ### macOS
 
@@ -88,6 +96,12 @@ After the repository is already on the computer:
 * macOS: run `docs.command`
 
 Both launchers check PowerShell first and then run the local `run.ps1` file.
+
+GitHub's browser upload may store the macOS launcher files without the executable permission. The automated workflow corrects those permissions before validation, and the installer applies them again to the installed copy. When running the repository files directly on a Mac before installation, use:
+
+```bash
+chmod 755 bootstrap-macos.sh docs.command
+```
 
 Keep the PowerShell or Terminal window open while using the handbook. Closing the window or pressing `Ctrl+C` stops the local website.
 
@@ -219,14 +233,16 @@ The first setup requires internet access to download PowerShell when needed, the
 
 The GitHub Actions workflow runs on Windows and macOS. It:
 
-1. Runs the static repository audit.
-2. Parses every PowerShell file with the PowerShell language parser.
-3. Checks the macOS launcher scripts for valid shell syntax.
-4. Performs a clean local installation.
-5. Builds and starts the website.
-6. Checks the health endpoint.
-7. Tests a failed update and rollback.
-8. Stops the server and confirms the owning process exits cleanly.
+1. Corrects the macOS launcher permissions in the checked-out workflow workspace.
+2. Runs the static repository audit.
+3. Parses every PowerShell file with the PowerShell language parser.
+4. Checks the macOS launcher scripts for valid shell syntax and executable permissions.
+5. Performs a clean local installation.
+6. Confirms the installed macOS launchers are executable.
+7. Builds and starts the website.
+8. Checks the health endpoint.
+9. Tests a failed update and rollback.
+10. Stops the server and confirms the owning process exits cleanly.
 
 Run the static project audit locally with:
 
