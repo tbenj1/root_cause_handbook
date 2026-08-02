@@ -1,0 +1,121 @@
+site_name: The Root Cause Handbook
+site_description: A practical troubleshooting guide for IT professionals
+
+repo_name: tbenj1/root_cause_handbook
+repo_url: https://github.com/tbenj1/root_cause_handbook
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  font: false
+  logo: assets/images/root-cause-mark.svg
+  favicon: assets/images/favicon.svg
+
+  palette:
+    scheme: rch-ember
+
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs
+    - navigation.sections
+    - navigation.path
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - content.tabs.link
+    - content.tooltips
+    - search.suggest
+    - search.highlight
+    - search.share
+
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      lang: en
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: false
+
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/tbenj1/root_cause_handbook
+      name: Root Cause Handbook on GitHub
+
+copyright: Copyright &copy; The Root Cause Handbook
+
+nav:
+  - Home: index.md
+
+  - Troubleshooting Process:
+      - Complete Workflow: troubleshooting_workflow.md
+      - Information Gathering: information_gathering.md
+      - Defining the Scope: defining_the_scope.md
+
+  - Tools:
+      - Tools Overview: troubleshooting_tools.md
+      - PowerShell Cheat Sheet: powershell_cheat_sheet.md
+      - Event Viewer: event_viewer.md
+      - Device Drivers and Update Catalog: microsoft_update_catalog_drivers.md
+      - MXToolbox: mxtoolbox.md
+      - Microsoft Purview Audit: purview_audit.md
+
+  - Investigation:
+      - Researching Issues: researching_issues.md
+      - Using IT Glue: using_it_glue.md
+
+  - Closing the Issue:
+      - Resolving Issues: resolving_issues.md
+      - Documentation: documentation.md
+      - Escalation: escalation.md
+      - Troubleshooting Checklist: checklist.md
+
+  - Help and Setup: help.md

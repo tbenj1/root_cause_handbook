@@ -1,0 +1,245 @@
+name: Documentation and Launcher Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python for repository checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run static project audit
+        shell: pwsh
+        run: python ./tools/project_audit.py
+
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: node --check ./docs/javascripts/extra.js
+
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          $scripts = @(
+              './bootstrap-windows.ps1',
+              './install.ps1',
+              './run.ps1'
+          )
+
+          foreach ($script in $scripts) {
+              $tokens = $null
+              $parseErrors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  (Resolve-Path $script).Path,
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              )
+
+              if ($parseErrors.Count -gt 0) {
+                  $failed = $true
+                  Write-Host "PowerShell parser errors in $script" -ForegroundColor Red
+                  $parseErrors | ForEach-Object { Write-Host $_.Message -ForegroundColor Red }
+              }
+          }
+
+          if ($failed) {
+              throw 'One or more PowerShell scripts failed parser validation.'
+          }
+
+      - name: Check PowerShell help output
+        shell: pwsh
+        run: |
+          $checks = @(
+              @{ Script = './install.ps1'; Marker = 'Root Cause Handbook installer' },
+              @{ Script = './run.ps1'; Marker = 'Root Cause Handbook local launcher' }
+          )
+
+          if ($IsWindows) {
+              $checks += @{ Script = './bootstrap-windows.ps1'; Marker = 'Root Cause Handbook Windows bootstrap' }
+          }
+
+          foreach ($check in $checks) {
+              $output = & pwsh -NoLogo -NoProfile -File $check.Script -Help | Out-String
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Help failed for $($check.Script) with exit code $LASTEXITCODE."
+              }
+
+              if ($output -notmatch [regex]::Escape($check.Marker)) {
+                  throw "The expected help marker was not returned by $($check.Script)."
+              }
+          }
+
+      - name: Check macOS shell syntax, permissions, and help
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bash -n ./bootstrap-macos.sh
+          bash -n ./docs.command
+          test -x ./bootstrap-macos.sh
+          test -x ./docs.command
+          ./bootstrap-macos.sh --help | grep -q 'Root Cause Handbook macOS bootstrap'
+
+      - name: Test install, live health, rollback, and stop behavior
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoRoot = (Get-Location).Path
+          $installPath = Join-Path $env:RUNNER_TEMP 'RootCauseHandbookSmokeTest'
+          $badSourcePath = Join-Path $env:RUNNER_TEMP 'RootCauseHandbookInvalidUpdate'
+          $port = 8765
+          $healthUri = "http://127.0.0.1:$port/assets/health.txt"
+          $marker = 'root-cause-handbook-health-v1'
+
+          Remove-Item -LiteralPath $installPath -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $badSourcePath -Recurse -Force -ErrorAction SilentlyContinue
+
+          $job = Start-Job -ScriptBlock {
+              param($RepositoryRoot, $TargetPath, $TestPort)
+
+              $ErrorActionPreference = 'Stop'
+              Set-Location $RepositoryRoot
+              & pwsh `
+                  -NoLogo `
+                  -NoProfile `
+                  -File (Join-Path $RepositoryRoot 'install.ps1') `
+                  -SourcePath $RepositoryRoot `
+                  -InstallPath $TargetPath `
+                  -Port $TestPort `
+                  -NoBrowser
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "The installer exited with code $LASTEXITCODE."
+              }
+          } -ArgumentList $repoRoot, $installPath, $port
+
+          try {
+              function Wait-ForHandbookHealth {
+                  param([int]$Attempts = 240)
+
+                  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+                      try {
+                          $response = Invoke-WebRequest -Uri $healthUri -TimeoutSec 2 -NoProxy
+                          if ($response.StatusCode -eq 200 -and $response.Content.Trim() -eq $marker) {
+                              return $true
+                          }
+                      }
+                      catch {
+                          Start-Sleep -Seconds 1
+                      }
+                  }
+
+                  return $false
+              }
+
+              if (-not (Wait-ForHandbookHealth)) {
+                  $diagnostics = Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue | Out-String
+                  throw "The handbook did not pass its first live health check.`n$diagnostics"
+              }
+
+              $installedRunScript = Join-Path $installPath 'run.ps1'
+              $installedConfig = Join-Path $installPath 'mkdocs.yml'
+
+              foreach ($requiredFile in @($installedRunScript, $installedConfig)) {
+                  if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+                      throw "The installed file was not found: $requiredFile"
+                  }
+              }
+
+              $knownGoodConfig = Get-Content -LiteralPath $installedConfig -Raw
+
+              New-Item -ItemType Directory -Path $badSourcePath -Force | Out-Null
+              Get-ChildItem -LiteralPath $repoRoot -Force |
+                  Where-Object { $_.Name -notin @('.git', '.venv', '.runtime', 'site') } |
+                  Copy-Item -Destination $badSourcePath -Recurse -Force
+
+              Add-Content -LiteralPath (Join-Path $badSourcePath 'mkdocs.yml') -Value "`ninvalid_yaml: ["
+
+              $previousErrorPreference = $ErrorActionPreference
+              $ErrorActionPreference = 'Continue'
+              try {
+                  & pwsh `
+                      -NoLogo `
+                      -NoProfile `
+                      -File (Join-Path $repoRoot 'install.ps1') `
+                      -SourcePath $badSourcePath `
+                      -InstallPath $installPath `
+                      -Port $port `
+                      -NoBrowser `
+                      -ValidateOnly
+                  $invalidUpdateExitCode = $LASTEXITCODE
+              }
+              finally {
+                  $ErrorActionPreference = $previousErrorPreference
+              }
+
+              if ($invalidUpdateExitCode -eq 0) {
+                  throw 'The intentionally invalid update was accepted instead of being rolled back.'
+              }
+
+              $completedJob = Wait-Job -Job $job -Timeout 60
+              if (-not $completedJob) {
+                  throw 'The first installer process did not exit after the update stopped its server.'
+              }
+
+              if (-not (Wait-ForHandbookHealth -Attempts 180)) {
+                  throw 'The previous handbook version did not return to a healthy state after rollback.'
+              }
+
+              $restoredConfig = Get-Content -LiteralPath $installedConfig -Raw
+              if ($restoredConfig -ne $knownGoodConfig) {
+                  throw 'The original MkDocs configuration was not restored after the failed update.'
+              }
+
+              & pwsh -NoLogo -NoProfile -File $installedRunScript -Port $port -NoBrowser -StopServer
+              if ($LASTEXITCODE -ne 0) {
+                  throw "The stop command exited with code $LASTEXITCODE."
+              }
+
+              $jobOutput = Receive-Job -Job $job -ErrorAction SilentlyContinue | Out-String
+              if (-not [string]::IsNullOrWhiteSpace($jobOutput)) {
+                  Write-Host $jobOutput
+              }
+
+              if ($job.State -ne 'Completed') {
+                  throw "The first installer job ended in the $($job.State) state."
+              }
+          }
+          finally {
+              $installedRunScript = Join-Path $installPath 'run.ps1'
+              if (Test-Path -LiteralPath $installedRunScript -PathType Leaf) {
+                  & pwsh -NoLogo -NoProfile -File $installedRunScript -Port $port -NoBrowser -StopServer 2>$null
+              }
+
+              if ($job.State -in @('Running', 'NotStarted')) {
+                  Stop-Job -Job $job -ErrorAction SilentlyContinue
+              }
+
+              Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $installPath -Recurse -Force -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $badSourcePath -Recurse -Force -ErrorAction SilentlyContinue
+          }
